@@ -1,34 +1,225 @@
 import flet as ft
+import numpy as np
+import pandas as pd
+
+class Graphic:
+    def __init__(self):
+        self.path = "C:/Users/ManoelRocha/Documents/energiaSolar/TabelaTESF.xlsx"
+        self.table = pd.read_excel(self.path)
+
+    def setPath(self):
+        # self.path = path
+        if self.path != "":
+            tabelaTESF = pd.read_excel(self.path)
+            self.setTable(table=tabelaTESF)
+
+    def setTable(self, table):
+        self.table = table
+
+    def generateDataSeriesRadiance(self):
+        labels = []
+        for i in range(0,len(self.table["Radiação"])):
+            labels.append(
+                ft.LineChartDataPoint(i, float(self.table["Radiação"][i]))
+            )
+        return labels
+    
+    def generateDataSeriesTemperature(self):
+        labels = []
+        for i in range(0,len(self.table["Temp_Cel"])):
+            labels.append(
+                ft.LineChartDataPoint(i, float(self.table["Temp_Cel"][i]))
+            )
+        return labels
+
+    def getListHours(self):
+        list = []
+        for t in self.table["Data_Hora"]:
+            list.append(ft.dropdown.Option(t.strftime("%H:%M")))
+        return list
+
+    def getMinYRadiance(self):
+        return -1
+    
+    def getMaxYRadiance(self):
+        r = max(self.table["Radiação"]) % 100
+        if r > 0:
+            return max(self.table["Radiação"]) + (100-r)
+        return max(self.table["Radiação"])
+        
+    def getMinYTemperature(self):
+        return min(self.table["Temp_Cel"])-10
+    
+    def getMaxYTemperature(self):
+        return max(self.table["Temp_Cel"])+1
+    
+    def getMinX(self):
+        return -1
+    
+    def getMaxX(self):
+        return len(self.table["Data_Hora"])+1
+
+
+g = Graphic()
 
 def main(page: ft.Page):
-    page.window_maximized = True
     page.title = "Software - Célula Fotovoltáica"
     page.vertical_alignment = ft.MainAxisAlignment.SPACE_EVENLY
     page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
-    page.window_resizable = False
+    page.window.resizable = False
+    page.window.maximized = True
+
+    titlePowerNetwork = ft.Text(
+        
+    )
+
+    viewPowerNetwork = ft.LineChart(
+
+    )
+
+    titleNetwork = ft.Text(
+        
+    )
+
+    viewNetwork = ft.LineChart(
+
+    )
+
+    titlePower = ft.Text(
+
+    )
+
+    viewPower = ft.LineChart(
+
+    )
+
+    inputHour = ft.Dropdown(
+        bgcolor = ft.colors.TRANSPARENT,
+        color = ft.colors.WHITE,
+        value = "00:00",
+        options = g.getListHours(),
+    )
+
+    viewRadiance = ft.LineChart(
+        data_series = [
+            ft.LineChartData(
+                data_points = g.generateDataSeriesRadiance(),
+                stroke_width=1,
+                color=ft.colors.YELLOW_ACCENT,
+                stroke_cap_round=True,
+            ),
+        ],
+        min_y = g.getMinYRadiance(),
+        min_x = g.getMinX(),
+        max_y = g.getMaxYRadiance(),
+        max_x = g.getMaxX(),
+        tooltip_bgcolor = ft.colors.with_opacity(0.8, ft.colors.BLACK),
+        expand = True,
+    )
+
+    titleRadiance = ft.Container(
+        content = ft.Text(
+            "Radiância ao longo do dia", 
+            size = 20,
+            text_align = ft.TextAlign.CENTER,
+            weight = ft.FontWeight.BOLD,
+        ),
+        width = page.width*0.7,
+        height = page.height*0.055,
+    )
+
+    viewTemperature = ft.LineChart(
+        data_series = [
+            ft.LineChartData(
+                data_points = g.generateDataSeriesTemperature(),
+                stroke_width=1,
+                color=ft.colors.RED,
+                stroke_cap_round=True,
+            ),
+        ],
+        min_y = g.getMinYTemperature(),
+        min_x = g.getMinX(),
+        max_y = g.getMaxYTemperature(),
+        max_x = g.getMaxX(),
+        tooltip_bgcolor = ft.colors.with_opacity(0.8, ft.colors.BLACK),
+        expand = True,
+    )
+
+    titleTemperature = ft.Container(
+        content = ft.Text(
+            "Temperatura ao longo do dia", 
+            size = 20,
+            text_align = ft.TextAlign.CENTER,
+            weight = ft.FontWeight.BOLD,
+        ),
+        width = page.width*0.7,
+        height = page.height*0.055,
+    )
+
+    GraphicSpace =  ft.Row(
+            controls = [
+                ft.Container(
+                        content = ft.Row(
+                            controls = [
+                                ft.Container(
+                                    content = ft.Column(
+                                        controls = [
+                                            titleRadiance,
+                                            viewRadiance,
+                                            titleTemperature,
+                                            viewTemperature
+                                        ],
+                                    ),
+                                    width = page.width*0.7,
+                                    height = page.height*0.9,
+                                ),
+                                ft.Container(
+                                    content = ft.Column(
+                                        controls = [
+                                            inputHour,
+                                            titlePower,
+                                            viewPower,
+                                            titleNetwork,
+                                            viewNetwork,
+                                            titlePowerNetwork,
+                                            viewPowerNetwork,
+                                        ],
+                                    ),
+                                    width = page.width*0.24,
+                                    height = page.height*0.9,
+                                )
+                            ]
+                        ),
+                        width = page.width*0.95,
+                        height = page.height*0.9,
+                ),
+                ft.Container(
+                    bgcolor=ft.colors.RED,
+                    width = page.width*0.24,
+                    height = page.height*0.9,
+                )
+            ],
+            alignment= ft.MainAxisAlignment.CENTER,
+            width = page.width*1.2,        
+        )
+
+
+
+
 
     # Container Principal - Row Header - Container 02 - buttonSpaceRecord02
     buttonSpaceRecord02 = ft.ElevatedButton(
-        'Ação 02',
+        'A',
         icon=ft.icons.ADD,
         # on_click= ,
-        width = 300,
-        style = ft.ButtonStyle(padding = 20)
-    )
-
-    # Container Principal - Row Header - Container 02 - buttonSpaceRecord01
-    buttonSpaceRecord01 = ft.ElevatedButton(
-        'Ação 01',
-        icon=ft.icons.ADD,
-        # on_click= ,
-        width = 300,
+        width = 100,
         style = ft.ButtonStyle(padding = 20)
     )
 
     # Container Principal - Row Header - Container 02 - titleSpaceRecord
     titleSpaceRecord = ft.Container(
         content = ft.Text(
-            "Gerenciamento de Gravação", 
+            "Gerenciamento", 
             size = 20,
             text_align = ft.TextAlign.CENTER,
             weight = ft.FontWeight.BOLD,
@@ -41,24 +232,19 @@ def main(page: ft.Page):
     buttonActionSpaceFile = ft.ElevatedButton(
         'Gerar Dashboard',
         icon=ft.icons.DASHBOARD_CUSTOMIZE,
-        # on_click=,
+        # on_click = dashboard(),
         width = 300,
         style = ft.ButtonStyle(padding = 20)
     )
 
-    # Container Principal - Row Header - Container 01 - textPathSpacefile
-    textPathSpacefile = ft.Text(
-        width = 0,
-        text_align= ft.TextAlign.CENTER,
-        overflow = ft.TextOverflow.ELLIPSIS,
-    )
-
     # Container Principal - Row Header - Container 01 - buttonSpaceFile - def filesResult
     def filesResult(event: ft.FilePickerResultEvent):
-        textPathSpacefile.value = (
-            ', '.join(map(lambda f: f.path, event.files)) if event.files else page.open(ft.AlertDialog(title=ft.Text("Erro ao Carregar arquivo, tente novamente!")))
-        )
-        textPathSpacefile.update()
+        if event.files:
+            path = ', '.join(f.path for f in event.files)
+        else:
+            page.open(ft.AlertDialog(title=ft.Text("Erro ao Carregar arquivo, tente novamente!")))
+            path = ""
+        g.setPath()
 
     # Container Principal - Row Header - Container 01 - buttonSpaceFile - filesDialog
     filesDialog = ft.FilePicker(on_result=filesResult)
@@ -80,7 +266,7 @@ def main(page: ft.Page):
             text_align = ft.TextAlign.CENTER,
             weight = ft.FontWeight.BOLD,
         ),
-        width = page.width*0.595,
+        width = page.width*0.9,
         height = page.height*0.055,
     )
 
@@ -89,25 +275,25 @@ def main(page: ft.Page):
             controls = [
                 ft.Container(
                     content = ft.Row(
-                        controls = [titleSpaceFile, buttonSpaceFile, textPathSpacefile, buttonActionSpaceFile],
+                        controls = [titleSpaceFile, buttonSpaceFile, buttonActionSpaceFile],
                         alignment = ft.MainAxisAlignment.SPACE_EVENLY,
                         vertical_alignment = ft.CrossAxisAlignment.CENTER,
-                        width = page.width*0.595,
+                        width = page.width*0.95,
                         height = page.height*0.165,
                         wrap = True,
                     ),
-                    # bgcolor = ft.colors.BLUE_GREY_800,
+                    bgcolor=ft.colors.AMBER
                 ),
                 ft.Container(
                     content = ft.Row(
-                        controls=[titleSpaceRecord, buttonSpaceRecord01, buttonSpaceRecord02],
+                        controls=[titleSpaceRecord, buttonSpaceRecord02],
                         alignment = ft.MainAxisAlignment.SPACE_EVENLY,
                         vertical_alignment = ft.CrossAxisAlignment.CENTER,
-                        width = page.width*0.595,
+                        width = page.width*0.24,
                         height = page.height*0.165,
                         wrap = True,
                     ),
-                    # bgcolor = ft.colors.GREEN_800,
+                    bgcolor=ft.colors.RED
                 ),
             ],
             alignment= ft.MainAxisAlignment.CENTER,
@@ -119,19 +305,13 @@ def main(page: ft.Page):
         content = ft.Column(
             controls = [
                 headerSpace,
-                ft.Container(
-                    content=ft.Text("olá mundo"),
-                    width=page.width*1.2,
-                    height = page.height*0.935,
-                    bgcolor=ft.colors.BLACK54,
-                )
+                GraphicSpace,
             ],
             alignment = ft.MainAxisAlignment.CENTER,
             horizontal_alignment = ft.CrossAxisAlignment.CENTER,
             width = page.width*1.2,
             height = page.height*1.1, 
         ),
-        # bgcolor = ft.colors.RED_700,
     )
 
     page.overlay.extend([filesDialog])
