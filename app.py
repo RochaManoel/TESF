@@ -554,6 +554,17 @@ def main(page: ft.Page):
         inf01.value = "Irradiância Máxima: " + str(g.getMaxRadiance())
         inf02.value = "Temperatura Máxima: " + str(g.getMaxTemperature())
 
+        titleINF01.value = "Ao longo do dia"
+        inf01.value = "Irradiância Máxima: " + str(g.getMaxRadiance())
+        inf02.value = "Temperatura Máxima: " + str(g.getMaxTemperature())
+
+        curva01.value = "Is: " + str(max(p.I))
+        curva02.value = "VoC: " + str(max(p.V))
+        I, V = p.getId()
+        curva03.value = "I de Potência Máxima: " + str(I)
+        curva04.value = "V de Potência Máxima: " + str(V)
+        curva05.value = "Potência Máxima: " + str(max(p.pot))
+
         page.update()
 
     inputHour = ft.Dropdown(
@@ -823,7 +834,7 @@ def main(page: ft.Page):
     )
 
     def dashboard(e):
-        g.setPath("C:/Users/ManoelRocha/Documents/energiaSolar/TabelaTESF.xlsx")
+        g.setPath("TabelaTESF.xlsx")
 
         titleTemperature.value = "Temperatura ao longo do dia"
 
@@ -951,6 +962,8 @@ def main(page: ft.Page):
         curva03.value = "I de Potência Máxima: " + str(I)
         curva04.value = "V de Potência Máxima: " + str(V)
         curva05.value = "Potência Máxima: " + str(max(p.pot))
+
+        
 
         page.update()
 
