@@ -1,20 +1,34 @@
 import flet as ft
 import numpy as np
 import pandas as pd
+import math
 
 class Graphic:
     def __init__(self):
-        self.path = "C:/Users/ManoelRocha/Documents/energiaSolar/TabelaTESF.xlsx"
-        self.table = pd.read_excel(self.path)
+        self.path = ""
+        self.table = None
 
-    def setPath(self):
-        # self.path = path
+    def setPath(self, path):
+        self.path = path
         if self.path != "":
             tabelaTESF = pd.read_excel(self.path)
             self.setTable(table=tabelaTESF)
 
     def setTable(self, table):
         self.table = table
+
+    def getTable(self):
+        return self.table
+
+    def getBottomAxis(self):
+        labels = []
+        for i in range(0, len(self.table["Data_Hora"])):
+            t_str = self.table["Data_Hora"][i].strftime('%Y-%m-%d %H:%M:%S')
+            hour = t_str.split()[1].split(":")[0]
+            minute = t_str.split()[1].split(":")[1]
+            if minute == '00':
+                labels.append(ft.ChartAxisLabel(value = i, label=ft.Text(f"{hour}:{minute}", size=10)))
+        return labels
 
     def generateDataSeriesRadiance(self):
         labels = []
@@ -24,12 +38,36 @@ class Graphic:
             )
         return labels
     
+    def getLeftAxisRadiance(self):
+        labels = []
+        for i in range(0, int(self.getMaxYRadiance()+1)):
+            if i%100 == 0:
+                labels.append(
+                    ft.ChartAxisLabel(
+                        value = i,
+                        label=ft.Text(f"{i}", size=10),
+                    )
+                )
+        return labels
+    
     def generateDataSeriesTemperature(self):
         labels = []
         for i in range(0,len(self.table["Temp_Cel"])):
             labels.append(
                 ft.LineChartDataPoint(i, float(self.table["Temp_Cel"][i]))
             )
+        return labels
+
+    def getLeftAxisTemperature(self):
+        labels = []
+        for i in range(0, int(self.getMaxYTemperature()+1)):
+            if i%10 == 0:
+                labels.append(
+                    ft.ChartAxisLabel(
+                        value = i,
+                        label=ft.Text(f"{i}", size=10),
+                    )
+                )
         return labels
 
     def getListHours(self):
@@ -59,8 +97,238 @@ class Graphic:
     def getMaxX(self):
         return len(self.table["Data_Hora"])+1
 
-
 g = Graphic()
+
+g.setPath("C:/Users/ManoelRocha/Documents/energiaSolar/TabelaTESF.xlsx")
+
+class PhotovoltaicCell:
+    def __init__(self, table, time):
+        self.table = table
+        self.time = time
+        self.I = []
+        self.V = []
+        self.pot = []
+        self.Is = 0
+        self.vLim = 0
+        self.timer = []
+        self.Voltage = []
+        self.Current = []
+        self.numPlacas = 0
+        self.theta = np.pi
+        self.frequency = np.pi
+
+    def setTime(self, time):
+        self.time, time
+
+    def constant_two(self,VMPP, IMPP, VOC, ISC):
+        return ((VMPP / VOC - 1) / np.log(1 - IMPP / ISC))
+
+    def constant_one(self,VMPP, IMPP, VOC, ISC):
+        return (1 - IMPP / ISC) * np.exp((-1 * VMPP) / (self.constant_two(VMPP, IMPP, VOC, ISC) * VOC))
+
+    # Calcula a corrente do módulo fotovoltaico (FV)
+    def IP(self,VP, VMPP, IMPP, VOC, ISC):
+        return ISC * (1 - self.constant_one(VMPP, IMPP, VOC, ISC) * (np.exp(VP / (self.constant_two(VMPP, IMPP, VOC, ISC) * VOC) )- 1))
+
+    # Calcula corrente de curto-circuito
+    def ISC(self,G,T,ISCS,alpha,GS = 1000, TS = 298):
+        return ISCS*(G/GS)*(1+alpha*(T-TS))
+
+    # Calcula tensão de circuito aberto
+    def VOC(self,T,beta,VOCS,TS = 298):
+        return VOCS + (T-273)*beta*(T-TS)
+
+    # Calcula Corrente no ponto de máxima potência(MPP)
+    def IMPP(self,G,T,IMPPS,alpha,GS = 1000, TS = 298):
+        return IMPPS*(G/GS)*(1+alpha*(T-TS))
+
+    # Calcula Tensão no ponto de máxima potência(MPP)
+    def VMPP(self,T,beta,VMPPS,TS = 298):
+        return VMPPS + (T-273)*beta*(T-TS)
+
+    def searchDates(self,time):
+        for i in range(0, len(self.table['Data_Hora'])):
+            if self.table['Data_Hora'][i].strftime("%H:%M") == time:
+                return self.table['Radiação'][i], self.table['Temp_Cel'][i]
+        return None
+
+    def searchDate(self,time):
+        for i in range(0, len(self.table['Data_Hora'])):
+            if self.table['Data_Hora'][i].strftime("%H:%M") == time:
+                return self.table['Data_Hora'][i]
+
+    def calcRadiance(self, time, irradiancia_global, beta, gamma_p, lat, long_local, long_meridiano, horario_verao=0):
+        # Convertendo a string da data e hora para objeto datetime com o novo formato
+        data_hora = self.searchDate(time)
+        dia = data_hora.timetuple().tm_yday
+
+        # Determinando a equação do tempo (em horas)
+        B = (360/365) * (dia - 81)
+        EoT = 9.87 * np.sin(np.radians(2*B)) - 7.53 * np.cos(np.radians(B)) - 1.5 * np.sin(np.radians(B))
+        EoT /= 60  # Convertendo para horas
+
+        # Hora local
+        hora_local = data_hora.hour + data_hora.minute / 60
+
+        # Calculando a hora solar
+        hora_solar = hora_local - ((long_local - long_meridiano) / 15) + EoT + horario_verao
+
+        # Calculando a declinação solar
+        declinacao_solar = 23.45 * np.sin(np.radians(360 * (284 + dia) / 365))
+
+        # Calculando o ângulo horário
+        omega = 15 * (hora_solar - 12)
+
+        # Calculando o ângulo zenital do sol
+        theta_z = np.degrees(np.arccos(np.sin(np.radians(lat)) * np.sin(np.radians(declinacao_solar)) +
+                                        np.cos(np.radians(lat)) * np.cos(np.radians(declinacao_solar)) * np.cos(np.radians(omega))))
+
+        # Calculando o azimute solar
+        gamma_solar = np.degrees(np.arctan2(np.sin(np.radians(omega)),
+                                                np.cos(np.radians(omega)) * np.sin(np.radians(lat)) -
+                                                np.tan(np.radians(declinacao_solar)) * np.cos(np.radians(lat))))
+
+        # Cálculo do ângulo de incidência
+        theta_i = np.degrees(np.arccos(np.sin(np.radians(theta_z)) * np.cos(np.radians(gamma_p - gamma_solar)) * np.sin(np.radians(beta)) +
+                                            np.cos(np.radians(theta_z)) * np.cos(np.radians(beta))))
+
+        # Cálculo da irradiância incidente
+        return irradiancia_global * np.cos(np.radians(theta_i))
+
+    def calcPanel(self, G, T):
+        T = T+273
+        # Coeficientes de temperatura
+        alpha = 0.0005  # Coeficiente de Corrente (0.05% / °C)
+        beta = -0.0026  # Coeficiente de Tensão (-0.26% / °C)
+
+        # Parâmetros do painel CS7L-605MS
+        ISCS_R = 18.52
+        VOCS_R = 41.5  # Tensão de Circuito Aberto (V)
+        IMPPS_R = 17.25  # Corrente no Ponto de Máxima Potência (A)
+        VMPPS_R = 35.1  # Tensão no Ponto de Máxima Potência (V)
+
+        # Calculando os parâmetros com base em G e T
+        ISCS = self.ISC(G, T, ISCS_R, alpha, GS=1000, TS=298)
+        VOCS = self.VOC(T, beta, VOCS_R, TS=298)
+        IMPPS = self.IMPP(G, T, IMPPS_R, alpha, GS=1000, TS=298)
+        VMPPS = self.VMPP(T, beta, VMPPS_R, TS=298)
+
+        # Faixa de valores de tensão (V)
+        V_range = np.linspace(0, VOCS, 1000)
+
+        # Calcula as correntes correspondentes para cada valor de tensão
+        I_values = [self.IP(V, VMPPS, IMPPS, VOCS, ISCS) for V in V_range]
+
+        return  I_values, V_range, ISCS, VOCS
+
+    def getValues(self):
+        radiacao, tempCelula = self.searchDates(self.time)
+        beta = 0
+        gamma_p = 0
+        lat = -9.55766947266527
+        long_local = -35.78090672062049
+        long_meridiano = -45
+        horario_verao = 0
+        numPlacas = 10
+        theta = np.pi
+        gIncidence = self.calcRadiance(self.time, radiacao, beta, gamma_p, lat, long_local, long_meridiano, horario_verao)
+        I, V, Is, vLim = self.calcPanel(gIncidence, tempCelula)
+        self.I = I
+        self.V = V
+        self.Is = Is
+        self.vLim = vLim
+        self.numPlacas = numPlacas
+        self.theta = theta
+        self.timer = np.linspace(0, 0.02, 1000)
+        self.setVoltageCurrent()
+        self.getPot()
+
+    def setVoltageCurrent(self):
+        potRede = self.numPlacas * 17.25 * 35.1
+        Vp = 35.1 * self.numPlacas * np.sqrt(2)  # Tensão de pico
+        Ip = 2*potRede/Vp  # Corrente de pico (ajuste conforme necessário)
+        w = 2 * self.theta * 60  # Frequência angular (60 Hz)
+        labelsVoltage = []
+        labelsCurrent =[]
+        for i in self.timer:
+            labelsVoltage.append(Vp * np.cos(w * i))
+            labelsCurrent.append(Ip * np.cos(w * i - self.theta))
+        self.Voltage = labelsVoltage
+        self.Current = labelsCurrent
+
+    def getPot(self):
+        l = []
+        for i in range(0,len(self.I)):
+            l.append(self.I[i]*self.V[i])
+        self.pot = l
+
+    def generateIV(self):
+        labels = []
+        for i in range(0,len(self.I)):
+            labels.append(
+                ft.LineChartDataPoint(self.V[i], self.I[i])
+            )
+        return labels
+
+    def generatePIV(self):
+        labels = []
+        for i in range(0,len(self.I)):
+            pot = self.V[i]*self.I[i]
+            pot = ((self.getMaxYPIV()-2)*pot)/max(self.pot)
+            labels.append(
+                ft.LineChartDataPoint(self.V[i], pot)
+            )
+        return labels
+    
+    def getLeftAxisPIV(self):
+        return [
+            ft.ChartAxisLabel(value = self.getMinYPIV(), label = ft.Text(f"{self.getMinYPIV()}", size = 10)),
+            ft.ChartAxisLabel(value = self.Is, label = ft.Text(f"{self.Is}", size = 10)),
+            # ft.ChartAxisLabel(value = 0, label = ft.Text("0", size = 10)), # Máxima Potência para dps
+            ft.ChartAxisLabel(value = self.getMaxYPIV(), label = ft.Text(f"{self.getMaxYPIV()}A", size = 10)),
+        ]
+    
+    def getBottomAxisPIV(self):
+        return [
+            ft.ChartAxisLabel(value = self.getMinXPIV(), label = ft.Text(f"{self.getMinXPIV()}", size = 10)),
+            ft.ChartAxisLabel(value = self.vLim, label = ft.Text(f"{self.vLim}", size = 10)),
+            # ft.ChartAxisLabel(value = 0, label = ft.Text("0", size = 10)), # Máxima Potência para dps
+            ft.ChartAxisLabel(value = self.getMaxXPIV(), label = ft.Text(f"{self.getMaxXPIV()}V", size = 10)),
+        ]
+    
+    def getMinYPIV(self):
+        return 0
+
+    def getMinXPIV(self):
+        return 0
+
+    def getMaxYPIV(self):
+        return (math.ceil(self.Is/10)*10)+5
+    
+    def getMaxXPIV(self):
+        return (math.ceil(self.vLim/10)*10)+5
+
+    def generateVoltage(self):
+        labels = []
+        for i in range(0, len(self.timer)):
+            labels.append(
+                ft.LineChartDataPoint(self.timer[i], self.Voltage[i])
+            )
+        return labels
+
+    def generateCurrent(self):
+        labels = []
+        c = (max(self.Voltage))/max(self.Current)
+        for i in range(0, len(self.timer)):
+            labels.append(
+                ft.LineChartDataPoint(self.timer[i], c*self.Current[i])
+            )
+        return labels
+
+
+
+
+
 
 def main(page: ft.Page):
     page.title = "Software - Célula Fotovoltáica"
@@ -69,91 +337,218 @@ def main(page: ft.Page):
     page.window.resizable = False
     page.window.maximized = True
 
-    titlePowerNetwork = ft.Text(
-        
+    titleP = ft.Text(
+        value = "", 
+        size = 15,
+        text_align = ft.TextAlign.CENTER,
+        weight = ft.FontWeight.BOLD,
     )
 
-    viewPowerNetwork = ft.LineChart(
-
+    viewP = ft.LineChart(
+        data_series = [
+            ft.LineChartData(
+                data_points = [],
+                stroke_width=1,
+                color=ft.colors.BLUE,
+                stroke_cap_round=True,
+            ),
+            ft.LineChartData(
+                data_points = [],
+                stroke_width=1,
+                color=ft.colors.RED,
+                stroke_cap_round=True,
+            )
+        ],
+        width = page.width*0.24,
+        height = page.height*0.2,
+        expand = True, 
+        interactive = False 
+    )
+    
+    titleVoltage = ft.Text(
+        value = "", 
+        size = 15,
+        text_align = ft.TextAlign.CENTER,
+        weight = ft.FontWeight.BOLD,
     )
 
-    titleNetwork = ft.Text(
-        
+    viewVoltage = ft.LineChart(
+        data_series = [
+            ft.LineChartData(
+                data_points = [],
+                stroke_width=1,
+                color=ft.colors.BLUE,
+                stroke_cap_round=True,
+            ),
+            ft.LineChartData(
+                data_points = [],
+                stroke_width=1,
+                color=ft.colors.RED,
+                stroke_cap_round=True,
+            )
+        ],
+        width = page.width*0.24,
+        height = page.height*0.2,
+        expand = True, 
+        interactive = False 
     )
 
-    viewNetwork = ft.LineChart(
-
+    titlePIV = ft.Text(
+        value = "", 
+        size = 15,
+        text_align = ft.TextAlign.CENTER,
+        weight = ft.FontWeight.BOLD,
     )
 
-    titlePower = ft.Text(
-
+    viewPIV = ft.LineChart(
+        data_series = [
+            ft.LineChartData(
+                data_points = [],
+                stroke_width=1,
+                color=ft.colors.BLUE_ACCENT,
+                stroke_cap_round=True,
+            ),
+            ft.LineChartData(
+                data_points = [],
+                stroke_width=1,
+                color=ft.colors.GREEN_ACCENT,
+                stroke_cap_round=True,
+            )
+        ],
+        left_axis = ft.ChartAxis(
+            labels = [],
+            labels_size = 0,
+        ),
+        bottom_axis = ft.ChartAxis(
+            labels = [],
+            labels_size = 0,
+        ),
+        min_y = 0,
+        min_x = 0,
+        max_y = 0,
+        max_x = 0,
+        width = page.width*0.24,
+        height = page.height*0.2,
+        expand = True, 
+        interactive = False
     )
 
-    viewPower = ft.LineChart(
+    def restartHour(e):
+        print(inputHour.value)
+        p = PhotovoltaicCell(g.getTable(), inputHour.value)
+        p.getValues()
+        viewPIV.data_series = [
+            ft.LineChartData(
+                data_points = p.generateIV(),
+                stroke_width=1,
+                color=ft.colors.BLUE_ACCENT,
+                stroke_cap_round=True,
+            ),
+            ft.LineChartData(
+                data_points = p.generatePIV(),
+                stroke_width=1,
+                color=ft.colors.GREEN_ACCENT,
+                stroke_cap_round=True,
+            )
+        ]
+        viewPIV.left_axis.labels = p.getLeftAxisPIV()
+        viewPIV.left_axis.labels_size = 40
+        viewPIV.bottom_axis.labels = p.getBottomAxisPIV()
+        viewPIV.bottom_axis.labels_size = 30
+        viewPIV.min_y = p.getMinYPIV()
+        viewPIV.min_x = p.getMinXPIV()
+        viewPIV.max_y = p.getMaxYPIV()
+        viewPIV.max_x = p.getMaxXPIV()
 
-    )
+        viewVoltage.data_series = [
+            ft.LineChartData(
+                data_points = p.generateVoltage(),
+                stroke_width=1,
+                color=ft.colors.BLUE,
+                stroke_cap_round=True,
+            ),
+            ft.LineChartData(
+                data_points = p.generateCurrent(),
+                stroke_width=1,
+                color=ft.colors.RED,
+                stroke_cap_round=True,
+            )
+        ]
+
+        page.update()
 
     inputHour = ft.Dropdown(
         bgcolor = ft.colors.TRANSPARENT,
-        color = ft.colors.WHITE,
-        value = "00:00",
-        options = g.getListHours(),
+        color = ft.colors.TRANSPARENT,
+        disabled = True,
+        opacity = 0,
+        value = "",
+        options = [],
+        on_change = restartHour,
     )
 
     viewRadiance = ft.LineChart(
         data_series = [
             ft.LineChartData(
-                data_points = g.generateDataSeriesRadiance(),
+                data_points = [],
                 stroke_width=1,
                 color=ft.colors.YELLOW_ACCENT,
                 stroke_cap_round=True,
             ),
         ],
-        min_y = g.getMinYRadiance(),
-        min_x = g.getMinX(),
-        max_y = g.getMaxYRadiance(),
-        max_x = g.getMaxX(),
+        left_axis = ft.ChartAxis(
+            labels = [],
+            labels_size = 0,
+        ),
+        bottom_axis = ft.ChartAxis(
+            labels = [],
+            labels_size = 0,
+        ),
+        min_y = 0,
+        min_x = 0,
+        max_y = 0,
+        max_x = 0,
         tooltip_bgcolor = ft.colors.with_opacity(0.8, ft.colors.BLACK),
         expand = True,
     )
 
-    titleRadiance = ft.Container(
-        content = ft.Text(
-            "Radiância ao longo do dia", 
-            size = 20,
-            text_align = ft.TextAlign.CENTER,
-            weight = ft.FontWeight.BOLD,
-        ),
-        width = page.width*0.7,
-        height = page.height*0.055,
+    titleRadiance = ft.Text(
+        value = "", 
+        size = 20,
+        text_align = ft.TextAlign.CENTER,
+        weight = ft.FontWeight.BOLD,
     )
 
     viewTemperature = ft.LineChart(
         data_series = [
             ft.LineChartData(
-                data_points = g.generateDataSeriesTemperature(),
+                data_points = [],
                 stroke_width=1,
                 color=ft.colors.RED,
                 stroke_cap_round=True,
             ),
         ],
-        min_y = g.getMinYTemperature(),
-        min_x = g.getMinX(),
-        max_y = g.getMaxYTemperature(),
-        max_x = g.getMaxX(),
+        left_axis = ft.ChartAxis(
+            labels = [],
+            labels_size = 0,
+        ),
+        bottom_axis = ft.ChartAxis(
+            labels = [],
+            labels_size = 0,
+        ),
+        min_y = 0,
+        min_x = 0,
+        max_y = 0,
+        max_x = 0,
         tooltip_bgcolor = ft.colors.with_opacity(0.8, ft.colors.BLACK),
         expand = True,
     )
 
-    titleTemperature = ft.Container(
-        content = ft.Text(
-            "Temperatura ao longo do dia", 
-            size = 20,
-            text_align = ft.TextAlign.CENTER,
-            weight = ft.FontWeight.BOLD,
-        ),
-        width = page.width*0.7,
-        height = page.height*0.055,
+    titleTemperature = ft.Text(
+        value = "", 
+        size = 20,
+        text_align = ft.TextAlign.CENTER,
+        weight = ft.FontWeight.BOLD,
     )
 
     GraphicSpace =  ft.Row(
@@ -164,9 +559,17 @@ def main(page: ft.Page):
                                 ft.Container(
                                     content = ft.Column(
                                         controls = [
-                                            titleRadiance,
+                                            ft.Container(
+                                                content = titleRadiance,
+                                                width = page.width*0.7,
+                                                height = page.height*0.055,
+                                            ),
                                             viewRadiance,
-                                            titleTemperature,
+                                            ft.Container(
+                                                content = titleTemperature,
+                                                width = page.width*0.7,
+                                                height = page.height*0.055,
+                                            ),
                                             viewTemperature
                                         ],
                                     ),
@@ -177,12 +580,21 @@ def main(page: ft.Page):
                                     content = ft.Column(
                                         controls = [
                                             inputHour,
-                                            titlePower,
-                                            viewPower,
-                                            titleNetwork,
-                                            viewNetwork,
-                                            titlePowerNetwork,
-                                            viewPowerNetwork,
+                                            ft.Container(
+                                                content = titlePIV,
+                                                width = page.width*0.24,
+                                            ),
+                                            viewPIV,
+                                            ft.Container(
+                                                content = titleVoltage,
+                                                width = page.width*0.24,
+                                            ),
+                                            viewVoltage,
+                                            ft.Container(
+                                                content = titleP,
+                                                width = page.width*0.24,
+                                            ),
+                                            viewP,
                                         ],
                                     ),
                                     width = page.width*0.24,
@@ -202,7 +614,6 @@ def main(page: ft.Page):
             alignment= ft.MainAxisAlignment.CENTER,
             width = page.width*1.2,        
         )
-
 
 
 
@@ -228,11 +639,123 @@ def main(page: ft.Page):
         height = page.height*0.055,
     )
 
+    def dashboard(e):
+        g.setPath("C:/Users/ManoelRocha/Documents/energiaSolar/TabelaTESF.xlsx")
+
+        titleTemperature.value = "Temperatura ao longo do dia"
+
+        viewTemperature.data_series = [
+            ft.LineChartData(
+                data_points = g.generateDataSeriesTemperature(),
+                stroke_width=1,
+                color=ft.colors.RED_ACCENT,
+                stroke_cap_round=True,
+            )
+        ]
+        viewTemperature.left_axis.labels= g.getLeftAxisTemperature()
+        viewTemperature.left_axis.labels_size = 40
+        viewTemperature.bottom_axis.labels = g.getBottomAxis()
+        viewTemperature.bottom_axis.labels_size = 30
+        viewTemperature.min_y = g.getMinYTemperature()
+        viewTemperature.min_x = g.getMinX()
+        viewTemperature.max_y = g.getMaxYTemperature()
+        viewTemperature.max_x = g.getMaxX()
+
+        titleRadiance.value = "Irradiância ao longo do dia"
+
+        viewRadiance.data_series = [
+            ft.LineChartData(
+                data_points = g.generateDataSeriesRadiance(),
+                stroke_width=1,
+                color=ft.colors.YELLOW_ACCENT,
+                stroke_cap_round=True,
+            )
+        ]
+        viewRadiance.left_axis.labels= g.getLeftAxisRadiance()
+        viewRadiance.left_axis.labels_size = 40
+        viewRadiance.bottom_axis.labels = g.getBottomAxis()
+        viewRadiance.bottom_axis.labels_size = 30
+        viewRadiance.min_y = g.getMinYRadiance()
+        viewRadiance.min_x = g.getMinX()
+        viewRadiance.max_y = g.getMaxYRadiance()
+        viewRadiance.max_x = g.getMaxX()
+
+        inputHour.value = "12:00"
+        inputHour.options = g.getListHours()
+        inputHour.bgcolor = ft.colors.BLACK
+        inputHour.color = ft.colors.WHITE
+        inputHour.disabled = False
+        inputHour.opacity = 1
+
+        titlePIV.value = "Curva V - I"
+
+        p = PhotovoltaicCell(g.getTable(), inputHour.value)
+        p.getValues()
+        viewPIV.data_series = [
+            ft.LineChartData(
+                data_points = p.generateIV(),
+                stroke_width=1,
+                color=ft.colors.BLUE_ACCENT,
+                stroke_cap_round=True,
+            ),
+            ft.LineChartData(
+                data_points = p.generatePIV(),
+                stroke_width=1,
+                color=ft.colors.GREEN_ACCENT,
+                stroke_cap_round=True,
+            )
+        ]
+        viewPIV.left_axis.labels = p.getLeftAxisPIV()
+        viewPIV.left_axis.labels_size = 40
+        viewPIV.bottom_axis.labels = p.getBottomAxisPIV()
+        viewPIV.bottom_axis.labels_size = 30
+        viewPIV.min_y = p.getMinYPIV()
+        viewPIV.min_x = p.getMinXPIV()
+        viewPIV.max_y = p.getMaxYPIV()
+        viewPIV.max_x = p.getMaxXPIV()
+
+        titleVoltage.value = "Tensão e Corrente"
+
+        viewVoltage.data_series = [
+            ft.LineChartData(
+                data_points = p.generateVoltage(),
+                stroke_width=1,
+                color=ft.colors.BLUE,
+                stroke_cap_round=True,
+            ),
+            ft.LineChartData(
+                data_points = p.generateCurrent(),
+                stroke_width=1,
+                color=ft.colors.RED,
+                stroke_cap_round=True,
+            )
+        ]
+
+
+        titleP.value = "Potências"
+
+        # viewP.data_series = [
+        #     ft.LineChartData(
+        #         data_points = p.generateP1(),
+        #         stroke_width=1,
+        #         color=ft.colors.BLUE,
+        #         stroke_cap_round=True,
+        #     ),
+        #     ft.LineChartData(
+        #         data_points = p.generateP2(),
+        #         stroke_width=1,
+        #         color=ft.colors.RED,
+        #         stroke_cap_round=True,
+        #     )
+        # ]
+
+        page.update()
+
     # Container Principal - Row Header - Container 01 - buttonActionSpaceFile
     buttonActionSpaceFile = ft.ElevatedButton(
         'Gerar Dashboard',
         icon=ft.icons.DASHBOARD_CUSTOMIZE,
-        # on_click = dashboard(),
+        on_click = dashboard,
         width = 300,
         style = ft.ButtonStyle(padding = 20)
     )
