@@ -38,6 +38,12 @@ class Graphic:
             )
         return labels
     
+    def getMaxRadiance(self):
+        return max(self.table["Radiação"])
+    
+    def getMaxTemperature(self):
+        return max(self.table["Temp_Cel"])
+    
     def getLeftAxisRadiance(self):
         labels = []
         for i in range(0, int(self.getMaxYRadiance()+1)):
@@ -115,7 +121,10 @@ class PhotovoltaicCell:
         self.Current = []
         self.numPlacas = 0
         self.theta = np.pi
-        self.frequency = np.pi
+        self.frequencyangle = np.pi
+        self.P1 = []
+        self.P2 = []
+        self.P3 = []
 
     def setTime(self, time):
         self.time, time
@@ -223,14 +232,19 @@ class PhotovoltaicCell:
 
     def getValues(self):
         radiacao, tempCelula = self.searchDates(self.time)
-        beta = 0
-        gamma_p = 0
+        parameters = pd.read_excel("parametersTESF.xlsx")
         lat = -9.55766947266527
         long_local = -35.78090672062049
         long_meridiano = -45
-        horario_verao = 0
-        numPlacas = 10
-        theta = np.pi
+        beta = int(parameters["beta"][0])
+        gamma_p = int(parameters["gamma_p"][0])
+        # lat = float(parameters["lat"][0])
+        # long_local = float(parameters["long_local"][0])
+        # long_meridiano = float(parameters["long_meridiano"][0])
+        horario_verao = int(parameters["horario_verao"][0])
+        numPlacas = int(parameters["numPlacas"][0])
+        theta = eval(parameters["theta"][0])
+        frequencyangle = eval(parameters["frequencyangle"][0])
         gIncidence = self.calcRadiance(self.time, radiacao, beta, gamma_p, lat, long_local, long_meridiano, horario_verao)
         I, V, Is, vLim = self.calcPanel(gIncidence, tempCelula)
         self.I = I
@@ -239,6 +253,7 @@ class PhotovoltaicCell:
         self.vLim = vLim
         self.numPlacas = numPlacas
         self.theta = theta
+        self.frequencyangle = frequencyangle
         self.timer = np.linspace(0, 0.02, 1000)
         self.setVoltageCurrent()
         self.getPot()
@@ -250,17 +265,35 @@ class PhotovoltaicCell:
         w = 2 * self.theta * 60  # Frequência angular (60 Hz)
         labelsVoltage = []
         labelsCurrent =[]
+        labelsP1 = []
+        labelsP2 = []
+        labelsP3 = []
+        cos = np.cos(self.theta)
+        if cos < 0.000000001 and cos > -0.000000001:
+            cos = 0
+
         for i in self.timer:
             labelsVoltage.append(Vp * np.cos(w * i))
             labelsCurrent.append(Ip * np.cos(w * i - self.theta))
+            labelsP1.append(((Vp* Ip)/2 * (np.cos(2*w * i)))*cos + (Vp* Ip)/2*cos)
+            labelsP2.append(i * Vp * np.cos(w * i))
+            labelsP3.append(((Vp* Ip)/2)*np.sin(2*w * i)*np.sin(self.theta))
         self.Voltage = labelsVoltage
         self.Current = labelsCurrent
+        self.P1 = labelsP1
+        self.P2 = labelsP2
+        self.P3 = labelsP3
 
     def getPot(self):
         l = []
         for i in range(0,len(self.I)):
             l.append(self.I[i]*self.V[i])
         self.pot = l
+
+    def getId(self):
+        for i in range(0,len(self.I)):
+            if self.pot[i] == max(self.pot):
+                return self.I[i], self.V[i]
 
     def generateIV(self):
         labels = []
@@ -325,13 +358,35 @@ class PhotovoltaicCell:
             )
         return labels
 
+    def generateP1(self):
+        labels = []
+        c = (max(self.Voltage))/max(self.Current)
+        for i in range(0, len(self.timer)):
+            labels.append(
+                ft.LineChartDataPoint(self.timer[i], self.P1[i])
+            )
+        return labels
 
+    def generateP2(self):
+        labels = []
+        c = (max(self.Voltage))/max(self.Current)
+        for i in range(0, len(self.timer)):
+            labels.append(
+                ft.LineChartDataPoint(self.timer[i], self.P2[i])
+            )
+        return labels
 
-
-
+    def generateP3(self):
+        labels = []
+        c = (max(self.Voltage))/max(self.Current)
+        for i in range(0, len(self.timer)):
+            labels.append(
+                ft.LineChartDataPoint(self.timer[i], self.P3[i])
+            )
+        return labels
 
 def main(page: ft.Page):
-    page.title = "Software - Célula Fotovoltáica"
+    page.title = "Software - TESF"
     page.vertical_alignment = ft.MainAxisAlignment.SPACE_EVENLY
     page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
     page.window.resizable = False
@@ -355,7 +410,7 @@ def main(page: ft.Page):
             ft.LineChartData(
                 data_points = [],
                 stroke_width=1,
-                color=ft.colors.RED,
+                color=ft.colors.GREEN,
                 stroke_cap_round=True,
             )
         ],
@@ -475,6 +530,30 @@ def main(page: ft.Page):
             )
         ]
 
+        viewP.data_series = [
+            ft.LineChartData(
+                data_points = p.generateP1(),
+                stroke_width=1,
+                color=ft.colors.BLUE,
+                stroke_cap_round=True,
+            ),
+            ft.LineChartData(
+                data_points = p.generateP2(),
+                stroke_width=1,
+                color=ft.colors.RED,
+                stroke_cap_round=True,
+            ),
+            ft.LineChartData(
+                data_points = p.generateP3(),
+                stroke_width=1,
+                color=ft.colors.GREEN,
+                stroke_cap_round=True,
+            )
+        ]
+
+        inf01.value = "Irradiância Máxima: " + str(g.getMaxRadiance())
+        inf02.value = "Temperatura Máxima: " + str(g.getMaxTemperature())
+
         page.update()
 
     inputHour = ft.Dropdown(
@@ -551,6 +630,55 @@ def main(page: ft.Page):
         weight = ft.FontWeight.BOLD,
     )
 
+    titleINF01 = ft.Text(
+        value = "", 
+        size = 20,
+        text_align = ft.TextAlign.CENTER,
+        weight = ft.FontWeight.BOLD,
+    )
+
+    inf01 = ft.Text(
+        value = "", 
+        size = 15,
+        text_align = ft.TextAlign.LEFT,
+    )
+
+    inf02 = ft.Text(
+        value = "", 
+        size = 15,
+        text_align = ft.TextAlign.LEFT,
+    )
+
+    curva01 = ft.Text(
+        value = "", 
+        size = 15,
+        text_align = ft.TextAlign.LEFT,
+    )
+
+    curva02 = ft.Text(
+        value = "", 
+        size = 15,
+        text_align = ft.TextAlign.LEFT,
+    )
+
+    curva03 = ft.Text(
+        value = "", 
+        size = 15,
+        text_align = ft.TextAlign.LEFT,
+    )
+
+    curva04 = ft.Text(
+        value = "", 
+        size = 15,
+        text_align = ft.TextAlign.LEFT,
+    )
+
+    curva05 = ft.Text(
+        value = "", 
+        size = 15,
+        text_align = ft.TextAlign.LEFT,
+    )
+
     GraphicSpace =  ft.Row(
             controls = [
                 ft.Container(
@@ -602,11 +730,69 @@ def main(page: ft.Page):
                                 )
                             ]
                         ),
+
                         width = page.width*0.95,
                         height = page.height*0.9,
                 ),
                 ft.Container(
-                    bgcolor=ft.colors.RED,
+                        content = ft.Row(
+                            controls = [
+                                ft.Container(
+                                    content = ft.Column(
+                                        controls = [
+                                            ft.Container(
+                                                content = titleRadiance,
+                                                width = page.width*0.24,
+                                                height = page.height*0.06,
+                                            ),
+                                            ft.Container(
+                                                content = inf01,
+                                                width = page.width*0.24,
+                                                height = page.height*0.04,
+                                            ),
+                                            ft.Container(
+                                                content = inf02,
+                                                width = page.width*0.24,
+                                                height = page.height*0.04,
+                                            ),
+                                            ft.Container(
+                                                content = titleTemperature,
+                                                width = page.width*0.24,
+                                                height = page.height*0.06,
+                                            ),
+                                            ft.Container(
+                                                content = curva01,
+                                                width = page.width*0.24,
+                                                height = page.height*0.04,
+                                            ),
+                                            ft.Container(
+                                                content = curva02,
+                                                width = page.width*0.24,
+                                                height = page.height*0.04,
+                                            ),
+                                            ft.Container(
+                                                content = curva03,
+                                                width = page.width*0.24,
+                                                height = page.height*0.04,
+                                            ),
+                                            ft.Container(
+                                                content = curva04,
+                                                width = page.width*0.24,
+                                                height = page.height*0.04,
+                                            ),
+                                            ft.Container(
+                                                content = curva05,
+                                                width = page.width*0.24,
+                                                height = page.height*0.04,
+                                            ),
+                                        ],
+                                    ),
+                                    width = page.width*0.24,
+                                    height = page.height*0.9,
+                                ),
+
+                            ]
+                        ),
                     width = page.width*0.24,
                     height = page.height*0.9,
                 )
@@ -614,9 +800,6 @@ def main(page: ft.Page):
             alignment= ft.MainAxisAlignment.CENTER,
             width = page.width*1.2,        
         )
-
-
-
 
     # Container Principal - Row Header - Container 02 - buttonSpaceRecord02
     buttonSpaceRecord02 = ft.ElevatedButton(
@@ -734,20 +917,40 @@ def main(page: ft.Page):
 
         titleP.value = "Potências"
 
-        # viewP.data_series = [
-        #     ft.LineChartData(
-        #         data_points = p.generateP1(),
-        #         stroke_width=1,
-        #         color=ft.colors.BLUE,
-        #         stroke_cap_round=True,
-        #     ),
-        #     ft.LineChartData(
-        #         data_points = p.generateP2(),
-        #         stroke_width=1,
-        #         color=ft.colors.RED,
-        #         stroke_cap_round=True,
-        #     )
-        # ]
+        viewP.data_series = [
+            ft.LineChartData(
+                data_points = p.generateP1(),
+                stroke_width=1,
+                color=ft.colors.BLUE,
+                stroke_cap_round=True,
+            ),
+            ft.LineChartData(
+                data_points = p.generateP2(),
+                stroke_width=1,
+                color=ft.colors.RED,
+                stroke_cap_round=True,
+            ),
+            ft.LineChartData(
+                data_points = p.generateP3(),
+                stroke_width=1,
+                color=ft.colors.GREEN,
+                stroke_cap_round=True,
+            )
+        ]
+
+
+
+
+        titleINF01.value = "Ao longo do dia"
+        inf01.value = "Irradiância Máxima: " + str(g.getMaxRadiance())
+        inf02.value = "Temperatura Máxima: " + str(g.getMaxTemperature())
+
+        curva01.value = "Is: " + str(max(p.I))
+        curva02.value = "VoC: " + str(max(p.V))
+        I, V = p.getId()
+        curva03.value = "I de Potência Máxima: " + str(I)
+        curva04.value = "V de Potência Máxima: " + str(V)
+        curva05.value = "Potência Máxima: " + str(max(p.pot))
 
         page.update()
 
@@ -805,7 +1008,6 @@ def main(page: ft.Page):
                         height = page.height*0.165,
                         wrap = True,
                     ),
-                    bgcolor=ft.colors.AMBER
                 ),
                 ft.Container(
                     content = ft.Row(
@@ -816,7 +1018,8 @@ def main(page: ft.Page):
                         height = page.height*0.165,
                         wrap = True,
                     ),
-                    bgcolor=ft.colors.RED
+                    disabled = True,
+                    opacity = 0
                 ),
             ],
             alignment= ft.MainAxisAlignment.CENTER,
